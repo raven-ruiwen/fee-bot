@@ -262,7 +262,7 @@ func (s *Service) reBalanceOrderRatio(crossAccountLeverage float64) {
 		s.orderSetting.SetAllowOpenOrder()
 	} else if crossAccountLeverage > 2 && crossAccountLeverage <= 2.5 {
 		s.orderSetting.reBalanceRatio = 2
-		s.orderSetting.SetAllowOpenOrder()
+		s.orderSetting.SetDenyOpenOrder()
 	} else {
 		// > 2.5
 		s.orderSetting.reBalanceRatio = 2
