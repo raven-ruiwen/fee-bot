@@ -103,6 +103,7 @@ func (s *Service) Init() {
 
 func (s *Service) Run() {
 	for {
+		logrus.Infof("=====================================")
 		state, err := s.agentHyper.GetUserState(s.accountAddress)
 		if err != nil {
 			logrus.Errorf("Error getting user state: %v", err)
@@ -145,12 +146,22 @@ func (s *Service) Run() {
 			}
 		}
 
-		logrus.Warnf("[Perp] account value: %.2f, 可用USDC: %f, 杠杆倍数: %.3fx", perpAccountValue, s.perpAccount.AvailableUSDC, s.perpAccount.CrossAccountLeverage)
+		logrus.Warnf("[Perp] account value: %.2f, 可用USDC: %f, 杠杆倍数: %.3fx, 能否开单：%v", perpAccountValue, s.perpAccount.AvailableUSDC, s.perpAccount.CrossAccountLeverage, s.orderSetting.isAllowedOpenOrder)
 
 		//根据杠杆率调整本轮开/关仓阈值、是否可以下单
 		s.reBalanceOrderRatio(s.perpAccount.CrossAccountLeverage)
 
 		totalSpotEntryUSD := s.GetSpotEntryValue()
+
+		if need, toPerp, transferAmount := s.needReBalanceLeverage(); need {
+			result, err := s.AccountTransferUSDC(transferAmount, toPerp)
+			if err != nil {
+				logrus.Errorf("[资金杠杆ReBalance] 目前杠杆: %.3f, 是否为转移到perp：%v, 转移usdc数量：%f, err: %v", s.perpAccount.CrossAccountLeverage, toPerp, transferAmount, err)
+			}
+			logrus.Warnf("[资金杠杆ReBalance] 目前杠杆: %.3f, 是否为转移到perp：%v, 转移usdc数量：%f, result: %s", s.perpAccount.CrossAccountLeverage, toPerp, transferAmount, result)
+			//直接进入下一轮检查
+			continue
+		}
 
 		if s.needForceLiquidation(s.perpAccount.CrossAccountLeverage) {
 			//查找杠杆最多的，先平最多position的
@@ -173,16 +184,6 @@ func (s *Service) Run() {
 			}
 			//平空合约，卖现货
 			s.ExecOrder(OrderSellSpotBuyPerp, liquidationCoin, orderParam)
-			//直接进入下一轮检查
-			continue
-		}
-
-		if need, toPerp, transferAmount := s.needReBalanceLeverage(); need {
-			result, err := s.AccountTransferUSDC(transferAmount, toPerp)
-			if err != nil {
-				logrus.Errorf("[资金杠杆ReBalance] 目前杠杆: %.3f, 是否为转移到perp：%v, 转移usdc数量：%f, err: %v", s.perpAccount.CrossAccountLeverage, toPerp, transferAmount, err)
-			}
-			logrus.Warnf("[资金杠杆ReBalance] 目前杠杆: %.3f, 是否为转移到perp：%v, 转移usdc数量：%f, result: %s", s.perpAccount.CrossAccountLeverage, toPerp, transferAmount, result)
 			//直接进入下一轮检查
 			continue
 		}
@@ -219,7 +220,7 @@ func (s *Service) Run() {
 			priceDiff := (perpPrice - spotPrice) / spotPrice
 			priceDiffRatio := priceDiff * 100
 
-			logrus.Infof("[PriceDiff][%s] 当前差价 %.2f%%, 开仓差价: %.2f%%, 关仓差价: %.2f%%", c.Name, priceDiffRatio, s.GetAllowOpenPriceDiffRatio(), s.GetAllowClosePriceDiff())
+			logrus.Infof("[差价][%s] 当前差价 %.2f%%, 开仓差价: %.2f%%, 关仓差价: %.2f%%", c.Name, priceDiffRatio, s.GetAllowOpenPriceDiffRatio(), s.GetAllowClosePriceDiff())
 			action := s.GetOrderAction(priceDiffRatio)
 			if action != OrderNoAction {
 				logrus.Warnf("[OrderAction][%s]", c.Name)
@@ -233,8 +234,6 @@ func (s *Service) Run() {
 				logrus.Warnf("open success")
 			}
 		}
-
-		logrus.Infof("=====================================")
 
 		time.Sleep(s.runInterval * time.Second)
 	}
@@ -379,6 +378,10 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 
 		orderUSD := math.Min(freePositionUSD, spotAvailableUSD)
 
+		//开完perp最高2.4倍杠杆
+		maxLeverageUSD := 2.4*s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos
+		orderUSD = math.Min(orderUSD, maxLeverageUSD)
+
 		if orderUSD < 10 {
 			return nil, fmt.Errorf("order usd size too small, skip")
 		}
@@ -502,7 +505,7 @@ func (s *Service) AccountTransferUSDC(amount float64, toPerp bool) (string, erro
 	}
 
 	// 发送请求
-	resp, err := req.DevMode().R().SetBodyJsonMarshal(payload).Post("https://api.hyperliquid.xyz/exchange")
+	resp, err := req.R().SetBodyJsonMarshal(payload).Post("https://api.hyperliquid.xyz/exchange")
 	if err != nil {
 		return "err", err
 	}
@@ -536,7 +539,7 @@ func (s *Service) needReBalanceLeverage() (bool, bool, float64) {
 		toPerp = true
 		targetLeverage := 1.1
 		needMoreUSDC := (s.perpAccount.TotalNtlPos - targetLeverage*s.perpAccount.AccountValue) / targetLeverage
-		needMoreUSDC = math.Max(needMoreUSDC, 10)
+		needMoreUSDC = math.Max(needMoreUSDC, 50)
 		//判断现货账户是否有这么多的余额
 		if s.spotAccount.AvailableUSDC < needMoreUSDC {
 			//资金不够不转移，等待差价回归 or 强制平仓
@@ -547,7 +550,7 @@ func (s *Service) needReBalanceLeverage() (bool, bool, float64) {
 	if s.perpAccount.CrossAccountLeverage < 0.7 {
 		toPerp = false
 		needMoreUSDC := (s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos) * 0.55
-		needMoreUSDC = math.Max(needMoreUSDC, 10)
+		needMoreUSDC = math.Max(needMoreUSDC, 50)
 		//判断perp账户余额
 		if s.perpAccount.AvailableUSDC < needMoreUSDC {
 			return false, toPerp, 0
