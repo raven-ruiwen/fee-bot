@@ -379,7 +379,7 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 		orderUSD := math.Min(freePositionUSD, spotAvailableUSD)
 
 		//开完perp最高2.4倍杠杆
-		maxLeverageUSD := 2.4*s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos
+		maxLeverageUSD := 2.01*s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos
 		orderUSD = math.Min(orderUSD, maxLeverageUSD)
 
 		if orderUSD < 10 {
