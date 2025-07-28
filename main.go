@@ -14,7 +14,7 @@ func main() {
 	accountAddress := base.PkToAddress(config.Hyper.AccountPk)
 	agentAddress := base.PkToAddress(config.Hyper.AgentPk)
 
-	coins = append(coins, &fee_bot.Coin{Name: "HYPE", MarketSpotId: "@107", MarketPerpId: "HYPE", PositionMaxRatio: 30, OrderSpotId: "HYPE", OrderPerpId: "HYPE", Leverage: 5})
+	coins = append(coins, &fee_bot.Coin{Name: "HYPE", MarketSpotId: "@107", MarketPerpId: "HYPE", PositionMaxRatio: 100, OrderSpotId: "HYPE", OrderPerpId: "HYPE", Leverage: 5})
 	//coins = append(coins, &fee_bot.Coin{Name: "PUMP", MarketSpotId: "@188", MarketPerpId: "PUMP", PositionMaxRatio: 50, OrderSpotId: "UPUMP", OrderPerpId: "PUMP", Leverage: 5})
 
 	accountHyper := hyperliquid.NewHyperliquid(&hyperliquid.HyperliquidClientConfig{

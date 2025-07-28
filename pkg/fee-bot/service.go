@@ -228,9 +228,8 @@ func (s *Service) Run() {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
 					continue
 				}
-				//卖合约，买现货
-				s.ExecOrder(action, c, orderParam)
 
+				s.ExecOrder(action, c, orderParam)
 				logrus.Warnf("open success")
 			}
 		}
@@ -372,7 +371,7 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 		basicSize := math.Min(ask.Sz*0.5, bid.Sz*0.5)
 		orderPriceDiff := (bid.Px - ask.Px) / ask.Px * 100
 
-		//判断剩余可开仓位
+		//判断剩余可开仓位,不能超过设置的最大占比
 		maxPosition := s.GetSpotEntryValue() * (c.PositionMaxRatio / 100)
 		freePositionUSD := maxPosition - c.PositionUSD
 
@@ -387,6 +386,11 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 		freePositionSize := orderUSD / bid.Px
 
 		orderSz = math.Min(freePositionSize, basicSize)
+
+		//判断现货usdc还能开多少
+		spotMaxSz := s.spotAccount.AvailableUSDC / ask.Px
+		spotMaxSz = TruncateFloat(spotMaxSz, c.DecimalSpot.BigInt().Int64())
+		orderSz = math.Min(orderSz, spotMaxSz)
 
 		logrus.Infof("[%s][orderParam] raw size: %f, free size: %f, final size: %f, 差价: %f", c.Name, basicSize, freePositionSize, orderSz, orderPriceDiff)
 	} else {
@@ -410,7 +414,8 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 		orderSz = math.Min(ask.Sz*0.5, bid.Sz*0.5)
 		orderPriceDiff := (bid.Px - ask.Px) / ask.Px * 100
 
-		//todo: 检查持有量，选min（持有量，orderSZ）
+		//检查持有量，选min（持有量，orderSZ）
+		orderSz = math.Min(orderSz, c.SpotBalance)
 
 		logrus.Infof("[%s][orderParam] size: %f, 差价:  %f", c.Name, orderSz, orderPriceDiff)
 	}
