@@ -257,10 +257,10 @@ func (s *Service) reBalanceOrderRatio(crossAccountLeverage float64) {
 	} else if crossAccountLeverage > 1.5 && crossAccountLeverage <= 1.8 {
 		s.orderSetting.reBalanceRatio = 0.1
 		s.orderSetting.SetAllowOpenOrder()
-	} else if crossAccountLeverage > 1.8 && crossAccountLeverage <= 2 {
+	} else if crossAccountLeverage > 1.8 && crossAccountLeverage < 2 {
 		s.orderSetting.reBalanceRatio = 0.2
 		s.orderSetting.SetAllowOpenOrder()
-	} else if crossAccountLeverage > 2 && crossAccountLeverage <= 2.5 {
+	} else if crossAccountLeverage >= 2 && crossAccountLeverage < 2.5 {
 		s.orderSetting.reBalanceRatio = 2
 		s.orderSetting.SetDenyOpenOrder()
 	} else {
@@ -379,7 +379,7 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 		orderUSD := math.Min(freePositionUSD, spotAvailableUSD)
 
 		//开完perp最高2.4倍杠杆
-		maxLeverageUSD := 2.01*s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos
+		maxLeverageUSD := 2*s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos
 		orderUSD = math.Min(orderUSD, maxLeverageUSD)
 
 		if orderUSD < 10 {
