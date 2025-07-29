@@ -214,13 +214,13 @@ func (s *Service) Run() {
 				logrus.Warnf("[单币开仓比例达到上限][%s] %.2f%%(max %.2f%%)", c.Name, coinUSDRatio, c.PositionMaxRatio)
 				continue
 			} else {
-				logrus.Infof("[开仓比例][%s] %.2f%%(max %.2f%%), $%f", c.Name, coinUSDRatio, c.PositionMaxRatio, c.PositionUSD)
+				logrus.Infof("[开仓比例][%s] %.2f%%(max %.2f%%), size: %f, $%f", c.Name, coinUSDRatio, c.PositionMaxRatio, c.PositionSize, c.PositionUSD)
 			}
 
 			priceDiff := (perpPrice - spotPrice) / spotPrice
 			priceDiffRatio := priceDiff * 100
 
-			logrus.Infof("[差价][%s] 当前差价 %.2f%%, 开仓差价: %.2f%%, 关仓差价: %.2f%%", c.Name, priceDiffRatio, s.GetAllowOpenPriceDiffRatio(), s.GetAllowClosePriceDiff())
+			logrus.Infof("[差价][%s] 当前差价 %.2f%%（perp: %f : spot: %f）, 开仓差价: %.2f%%, 关仓差价: %.2f%%", c.Name, priceDiffRatio, perpPrice, spotPrice, s.GetAllowOpenPriceDiffRatio(), s.GetAllowClosePriceDiff())
 			action := s.GetOrderAction(priceDiffRatio)
 			if action != OrderNoAction {
 				logrus.Warnf("[OrderAction][%s]", c.Name)
@@ -318,7 +318,8 @@ func (s *Service) ExecOrder(direction OrderAction, coin *Coin, orderParam *Order
 		resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, -orderParam.Size, nil)
 		fmt.Println(resp1, err1)
 	} else if direction == OrderMarketSpot {
-		resp, err := s.agentHyper.MarketOrderSpot(coin.OrderPerpId, orderParam.Size, nil)
+		fmt.Println(orderParam)
+		resp, err := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, orderParam.Size, nil)
 		fmt.Println(resp, err)
 	} else if direction == OrderMarketPerp {
 		resp, err := s.agentHyper.MarketOrder(coin.OrderPerpId, orderParam.Size, nil)
@@ -452,11 +453,14 @@ func (s *Service) ReBalanceCoinPosition(c *Coin, spotPrice float64, perpPrice fl
 			}
 		} else {
 			//现货少，买入现货
+			fmt.Println(111)
 			action = OrderMarketSpot
 			tokenSize = perpPositionSizeHold - spotBalance
 			needUSDC := spotPrice * tokenSize
+			fmt.Println(spotPrice, tokenSize)
 			if s.spotAccount.AvailableUSDC < needUSDC {
 				//现货账户usdc不够，转为平掉一部分空单头寸来平衡
+				fmt.Println(222)
 				action = OrderMarketPerp
 			}
 		}
@@ -539,7 +543,7 @@ func (s *Service) needReBalanceLeverage() (bool, bool, float64) {
 		toPerp = true
 		targetLeverage := 1.1
 		needMoreUSDC := (s.perpAccount.TotalNtlPos - targetLeverage*s.perpAccount.AccountValue) / targetLeverage
-		needMoreUSDC = math.Max(needMoreUSDC, 50)
+		needMoreUSDC = math.Max(needMoreUSDC, 15)
 		//判断现货账户是否有这么多的余额
 		if s.spotAccount.AvailableUSDC < needMoreUSDC {
 			//资金不够不转移，等待差价回归 or 强制平仓
@@ -550,7 +554,7 @@ func (s *Service) needReBalanceLeverage() (bool, bool, float64) {
 	if s.perpAccount.CrossAccountLeverage < 0.7 {
 		toPerp = false
 		needMoreUSDC := (s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos) * 0.55
-		needMoreUSDC = math.Max(needMoreUSDC, 50)
+		needMoreUSDC = math.Max(needMoreUSDC, 15)
 		//判断perp账户余额
 		if s.perpAccount.AvailableUSDC < needMoreUSDC {
 			return false, toPerp, 0
