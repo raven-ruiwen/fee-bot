@@ -6,6 +6,8 @@ require (
 	github.com/Logarithm-Labs/go-hyperliquid/hyperliquid v0.0.0-20250301134158-93ef7a5af632
 	github.com/deng00/go-base v0.0.15
 	github.com/ethereum/go-ethereum v1.16.1
+	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/imroc/req v0.3.2
 	github.com/imroc/req/v3 v3.54.0
 	github.com/shopspring/decimal v1.4.0
 	github.com/sirupsen/logrus v1.9.3

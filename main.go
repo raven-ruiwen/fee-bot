@@ -3,13 +3,24 @@ package main
 import (
 	"fee-bot/pkg/base"
 	fee_bot "fee-bot/pkg/fee-bot"
+	"fee-bot/pkg/notify"
 	"github.com/Logarithm-Labs/go-hyperliquid/hyperliquid"
+	"github.com/sirupsen/logrus"
 )
 
 var coins []*fee_bot.Coin
 
 func main() {
+	logrus.SetFormatter(&logrus.TextFormatter{
+		TimestampFormat: "2006-01-02 15:04:05",
+		FullTimestamp:   true,
+	})
 	config := base.GetBotConfig()
+
+	notifyClient := notify.NewService()
+	for _, nc := range config.Notifies {
+		notifyClient.AddNotify(nc.Platform, nc.Token, nc.Channel)
+	}
 
 	accountAddress := base.PkToAddress(config.Hyper.AccountPk)
 	agentAddress := base.PkToAddress(config.Hyper.AgentPk)
@@ -30,7 +41,7 @@ func main() {
 		PrivateKey:     config.Hyper.AgentPk, // Private key of the account or API private key from Hyperliquid
 	})
 
-	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 7)
+	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 7, notifyClient)
 	service.Init()
 	service.Run()
 }

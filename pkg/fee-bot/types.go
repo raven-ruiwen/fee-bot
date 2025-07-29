@@ -6,19 +6,20 @@ import (
 )
 
 type Coin struct {
-	Name             string
-	OrderSpotId      string
-	OrderPerpId      string
-	MarketSpotId     string
-	MarketPerpId     string
-	PositionMaxRatio float64
-	PositionUSD      float64
-	PositionSize     float64
-	SpotBalance      float64
-	SpotEntryNtl     float64
-	DecimalSpot      decimal.Decimal
-	DecimalPerp      decimal.Decimal
-	Leverage         int
+	Name               string
+	OrderSpotId        string
+	OrderPerpId        string
+	MarketSpotId       string
+	MarketPerpId       string
+	PositionMaxRatio   float64
+	PositionUSD        float64
+	PositionSize       float64
+	PositionMarginUsed float64
+	SpotBalance        float64
+	SpotEntryNtl       float64
+	DecimalSpot        decimal.Decimal
+	DecimalPerp        decimal.Decimal
+	Leverage           int
 }
 
 func (c *Coin) SpotPositionEqualWithPerp() bool {

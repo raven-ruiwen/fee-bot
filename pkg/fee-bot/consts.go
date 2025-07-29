@@ -14,3 +14,5 @@ const (
 	OrderMarketSpot
 	OrderMarketPerp
 )
+
+const OrderStatusSuccess = "ok"
