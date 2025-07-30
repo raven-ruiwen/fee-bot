@@ -19,7 +19,6 @@ type Service struct {
 	tradeCoins     map[string]*Coin
 	runInterval    time.Duration
 	accountAddress string
-	orderSetting   orderSetting
 	spotAccount    spotAccount
 	perpAccount    perpAccount
 	notify         *notify.Service
@@ -150,12 +149,7 @@ func (s *Service) Run() {
 			}
 		}
 
-		logrus.Warnf("[Perp] account value: %.2f, 可用USDC: %f, 杠杆倍数: %.3fx, 能否开单：%v", perpAccountValue, s.perpAccount.AvailableUSDC, s.perpAccount.CrossAccountLeverage, s.orderSetting.isAllowedOpenOrder)
-
-		//根据杠杆率调整本轮开/关仓阈值、是否可以下单
-		s.reBalanceOrderRatio(s.perpAccount.CrossAccountLeverage)
-
-		totalSpotEntryUSD := s.GetSpotEntryValue()
+		logrus.Warnf("[Perp] account value: %.2f, 可用USDC: %f, 杠杆倍数: %.3fx", perpAccountValue, s.perpAccount.AvailableUSDC, s.perpAccount.CrossAccountLeverage)
 
 		if need, toPerp, transferAmount := s.needReBalanceLeverage(); need {
 			result, err := s.AccountTransferUSDC(transferAmount, toPerp)
@@ -170,15 +164,15 @@ func (s *Service) Run() {
 		if s.needForceLiquidation(s.perpAccount.CrossAccountLeverage) {
 			//查找杠杆最多的，先平最多position的
 			var liquidationCoin *Coin
-			var maxPositionRatio float64
+			var maxLeverage float64
 			for _, c := range s.tradeCoins {
-				coinUSDRatio := c.SpotEntryNtl / totalSpotEntryUSD * 100
-				if coinUSDRatio > maxPositionRatio {
+				coinLeverage := c.GetLeverage(s.perpAccount.AccountValue)
+				if coinLeverage > maxLeverage {
 					liquidationCoin = c
 				}
 			}
 
-			logrus.Warnf("[强制平仓][选择Token: %s] 仓位目前占比: %.2f%%", liquidationCoin.Name, maxPositionRatio)
+			logrus.Warnf("[强制平仓][选择Token: %s] 仓位目前杠杆率: %.2fx", liquidationCoin.Name, maxLeverage)
 			//依旧看买1卖1，慢慢平下去。不强制用usd转换数量
 			orderParam, err := s.GetOrderParam(OrderSellSpotBuyPerp, liquidationCoin)
 			if err != nil {
@@ -193,6 +187,10 @@ func (s *Service) Run() {
 
 		//检查交易币种
 		for _, c := range s.tradeCoins {
+			//单币下单参数阈值初始化
+			coinOrderSettings := s.getOrderSettingsByCoinLeverage(c.GetLeverage(s.perpAccount.AccountValue))
+			c.SetOrderSettings(coinOrderSettings)
+
 			spotPrice, errSP := s.agentHyper.GetMartketPx(c.MarketSpotId)
 			if errSP != nil {
 				logrus.Errorf("[%s][ErrGetSpotPrice] %s, skip", c.Name, errSP.Error())
@@ -211,20 +209,23 @@ func (s *Service) Run() {
 				break
 			}
 
-			//计算仓位占比
+			//计算仓位占比: (现货购买的usd使用量 + 合约目前的marginUSD) / (现货的USD价值 + 合约accountValue) * 100
+			totalSpotEntryUSD := s.GetSpotEntryValue()
 			coinUSDRatio := (c.SpotEntryNtl + c.PositionMarginUsed) / (totalSpotEntryUSD + s.perpAccount.AccountValue) * 100
+			logrus.Infof("[%s][Perp杠杆率] %.2fx, 能否开仓：%v", c.Name, c.GetLeverage(s.perpAccount.AccountValue), c.OrderSetting.isAllowedOpenOrder)
 			if coinUSDRatio > c.PositionMaxRatio {
 				logrus.Warnf("[%s][单币开仓比例达到上限] %.2f%%(max %.2f%%)", c.Name, coinUSDRatio, c.PositionMaxRatio)
+				//上限后跳过开单检查，直接判断下个coin
 				continue
 			} else {
 				logrus.Infof("[%s][开仓比例] %.2f%%(max %.2f%%), size: %f $%s, $%f", c.Name, coinUSDRatio, c.PositionMaxRatio, c.PositionSize, c.Name, c.PositionUSD)
 			}
 
-			priceDiff := (perpPrice - spotPrice) / spotPrice
-			priceDiffRatio := priceDiff * 100
+			priceDiffRatio := (perpPrice - spotPrice) / spotPrice * 100
 
-			logrus.Infof("[%s][差价] 当前差价 %.2f%%（perp: %f : spot: %f）, 开仓差价: %.2f%%, 关仓差价: %.2f%%", c.Name, priceDiffRatio, perpPrice, spotPrice, s.GetAllowOpenPriceDiffRatio(), s.GetAllowClosePriceDiff())
-			action := s.GetOrderAction(priceDiffRatio)
+			logrus.Infof("[%s][差价] 当前差价 %.2f%%（perp: %f : spot: %f）, 开仓差价: %.2f%%, 关仓差价: %.2f%%", c.Name, priceDiffRatio, perpPrice, spotPrice, c.GetAllowOpenPriceDiffRatio(), c.GetAllowClosePriceDiff())
+			//check 阈值和是否允许开仓判断也在get action里进行
+			action := s.GetCoinOrderAction(c, priceDiffRatio)
 			if action != OrderNoAction {
 				logrus.Warnf("[OrderAction][%s]", c.Name)
 				orderParam, err := s.GetOrderParam(action, c)
@@ -252,27 +253,29 @@ func (ps *orderSetting) SetDenyOpenOrder() {
 	ps.isAllowedOpenOrder = false
 }
 
-func (s *Service) reBalanceOrderRatio(crossAccountLeverage float64) {
-	if crossAccountLeverage < 1 {
-		s.orderSetting.reBalanceRatio = -0.2 //todo: 正式的时候修改回来
-		s.orderSetting.SetAllowOpenOrder()
-	} else if crossAccountLeverage > 1 && crossAccountLeverage <= 1.5 {
-		s.orderSetting.reBalanceRatio = 0
-		s.orderSetting.SetAllowOpenOrder()
-	} else if crossAccountLeverage > 1.5 && crossAccountLeverage <= 1.8 {
-		s.orderSetting.reBalanceRatio = 0.1
-		s.orderSetting.SetAllowOpenOrder()
-	} else if crossAccountLeverage > 1.8 && crossAccountLeverage < 2 {
-		s.orderSetting.reBalanceRatio = 0.2
-		s.orderSetting.SetAllowOpenOrder()
-	} else if crossAccountLeverage >= 2 && crossAccountLeverage < 2.5 {
-		s.orderSetting.reBalanceRatio = 2
-		s.orderSetting.SetDenyOpenOrder()
+func (s *Service) getOrderSettingsByCoinLeverage(coinLeverage float64) orderSetting {
+	var coinOrderSetting orderSetting
+	if coinLeverage < 1 {
+		coinOrderSetting.reBalanceRatio = -0.2 //todo: 正式的时候修改回来
+		coinOrderSetting.SetAllowOpenOrder()
+	} else if coinLeverage > 1 && coinLeverage <= 1.5 {
+		coinOrderSetting.reBalanceRatio = 0
+		coinOrderSetting.SetAllowOpenOrder()
+	} else if coinLeverage > 1.5 && coinLeverage <= 1.8 {
+		coinOrderSetting.reBalanceRatio = 0.1
+		coinOrderSetting.SetAllowOpenOrder()
+	} else if coinLeverage > 1.8 && coinLeverage < 2 {
+		coinOrderSetting.reBalanceRatio = 0.2
+		coinOrderSetting.SetAllowOpenOrder()
+	} else if coinLeverage >= 2 && coinLeverage < 2.5 {
+		coinOrderSetting.reBalanceRatio = 2
+		coinOrderSetting.SetDenyOpenOrder()
 	} else {
 		// > 2.5
-		s.orderSetting.reBalanceRatio = 2
-		s.orderSetting.SetDenyOpenOrder()
+		coinOrderSetting.reBalanceRatio = 2
+		coinOrderSetting.SetDenyOpenOrder()
 	}
+	return coinOrderSetting
 }
 
 func (s *Service) needForceLiquidation(crossAccountLeverage float64) bool {
@@ -292,19 +295,11 @@ func (s *Service) GetSpotEntryValue() float64 {
 	return totalUSDC + s.spotAccount.AvailableUSDC
 }
 
-func (s *Service) GetAllowOpenPriceDiffRatio() float64 {
-	return BasicOpenOrderPriceDiffRatio + s.orderSetting.reBalanceRatio
-}
+func (s *Service) GetCoinOrderAction(coin *Coin, priceDiffRate float64) OrderAction {
+	allowOpenPriceDiff := coin.GetAllowOpenPriceDiffRatio()
+	allowClosePriceDiff := coin.GetAllowClosePriceDiff()
 
-func (s *Service) GetAllowClosePriceDiff() float64 {
-	return BasicCloseOrderPriceDiffRatio
-}
-
-func (s *Service) GetOrderAction(priceDiffRate float64) OrderAction {
-	allowOpenPriceDiff := s.GetAllowOpenPriceDiffRatio()
-	allowClosePriceDiff := s.GetAllowClosePriceDiff()
-
-	if priceDiffRate > allowOpenPriceDiff && s.orderSetting.isAllowedOpenOrder {
+	if priceDiffRate > allowOpenPriceDiff && coin.OrderSetting.isAllowedOpenOrder {
 		return OrderSellPerpBuySpot
 	}
 	if priceDiffRate < allowClosePriceDiff {
@@ -355,23 +350,21 @@ func (s *Service) CheckOrder(coin *Coin, orderParam *OrderParam, orderResp *hype
 }
 
 func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, error) {
-	spotBook, err := s.agentHyper.GetL2BookSnapshot(c.MarketSpotId)
-	if err != nil {
-		logrus.Errorf("Error getting spot book: %v", err)
-		return nil, err
+	spotBook, spotBookErr := s.agentHyper.GetL2BookSnapshot(c.MarketSpotId)
+	if spotBookErr != nil {
+		logrus.Errorf("Error getting spot book: %v", spotBookErr)
+		return nil, spotBookErr
 	}
 	if len(spotBook.Levels) < 2 {
-		logrus.Errorf("[%s] spot order book lack bid/ask, length: %d, skip coin", c.Name, len(spotBook.Levels))
-		return nil, err
+		return nil, fmt.Errorf("[%s] spot order book lack bid/ask, length: %d, skip coin", c.Name, len(spotBook.Levels))
 	}
-	perpBook, err := s.agentHyper.GetL2BookSnapshot(c.MarketPerpId)
-	if err != nil {
-		logrus.Errorf("Error getting perp book: %v", err)
-		return nil, err
+	perpBook, perpBookErr := s.agentHyper.GetL2BookSnapshot(c.MarketPerpId)
+	if perpBookErr != nil {
+		logrus.Errorf("Error getting perp book: %v", perpBookErr)
+		return nil, perpBookErr
 	}
 	if len(perpBook.Levels) < 2 {
-		logrus.Errorf("[%s] perp order book lack bid/ask, length: %d, skip coin", c.Name, len(perpBook.Levels))
-		return nil, err
+		return nil, fmt.Errorf("[%s] perp order book lack bid/ask, length: %d, skip coin", c.Name, len(perpBook.Levels))
 	}
 
 	var orderSz float64
@@ -380,15 +373,13 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 		//开仓
 		//spot 卖1
 		if len(spotBook.Levels[1]) < 1 {
-			logrus.Errorf("[%s] spot order book [ASK] lack , skip coin", c.Name)
-			return nil, err
+
+			return nil, fmt.Errorf("[%s] spot order book [ASK] lack , skip coin", c.Name)
 		}
 		ask := spotBook.Levels[1][0]
-
 		//perp 买1
 		if len(perpBook.Levels[1]) < 1 {
-			logrus.Errorf("[%s] perp order book [BID] lack , skip coin", c.Name)
-			return nil, err
+			return nil, fmt.Errorf("[%s] perp order book [BID] lack , skip coin", c.Name)
 		}
 		bid := perpBook.Levels[0][0]
 
@@ -428,15 +419,13 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 		//关仓 取现货买1，perp卖1
 		//spot 买1
 		if len(spotBook.Levels[0]) < 1 {
-			logrus.Errorf("[%s] spot order book [Bid] lack , skip coin", c.Name)
-			return nil, err
+			return nil, fmt.Errorf("[%s] spot order book [Bid] lack , skip coin", c.Name)
 		}
 		bid := spotBook.Levels[0][0]
 
 		//perp卖1
 		if len(perpBook.Levels[1]) < 1 {
-			logrus.Errorf("[%s] perp order book [Ask] lack , skip coin", c.Name)
-			return nil, err
+			return nil, fmt.Errorf("[%s] perp order book [Ask] lack , skip coin", c.Name)
 		}
 		ask := perpBook.Levels[1][0]
 
@@ -467,7 +456,7 @@ func (s *Service) ReBalanceCoinPosition(c *Coin, spotPrice float64, perpPrice fl
 	spotBalance := c.SpotBalance
 	perpPositionSizeHold := c.PositionSize * -1 //做空的position size是负的
 	//当前杠杆否允许继续开
-	if s.orderSetting.isAllowedOpenOrder {
+	if c.OrderSetting.isAllowedOpenOrder {
 		//允许开，先计算差多少，再检查账户usdc是否充足
 		if spotBalance > perpPositionSizeHold {
 			//现货多，继续做空

@@ -20,10 +20,10 @@ type Coin struct {
 	DecimalSpot        decimal.Decimal
 	DecimalPerp        decimal.Decimal
 	Leverage           int
+	OrderSetting       orderSetting
 }
 
 func (c *Coin) SpotPositionEqualWithPerp(spotPrice float64) bool {
-	//usdDiff := math.Abs(c.SpotEntryNtl - c.PositionUSD)
 	sizeDiff := c.SpotBalance - math.Abs(c.PositionSize)
 	usdDiff := math.Abs(sizeDiff * spotPrice)
 	if c.SpotEntryNtl == 0 && c.PositionUSD == 0 {
@@ -35,6 +35,22 @@ func (c *Coin) SpotPositionEqualWithPerp(spotPrice float64) bool {
 	}
 	//usd 差异达到10 u以上
 	return false
+}
+
+func (c *Coin) GetLeverage(accountValue float64) float64 {
+	return c.PositionUSD / (accountValue * (c.PositionMaxRatio / 100))
+}
+
+func (c *Coin) SetOrderSettings(os orderSetting) {
+	c.OrderSetting = os
+}
+
+func (c *Coin) GetAllowOpenPriceDiffRatio() float64 {
+	return BasicOpenOrderPriceDiffRatio + c.OrderSetting.reBalanceRatio
+}
+
+func (c *Coin) GetAllowClosePriceDiff() float64 {
+	return BasicCloseOrderPriceDiffRatio
 }
 
 type RespDataExchange struct {
