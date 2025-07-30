@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -191,12 +192,31 @@ func (s *Service) Run() {
 			coinOrderSettings := s.getOrderSettingsByCoinLeverage(c.GetLeverage(s.perpAccount.AccountValue))
 			c.SetOrderSettings(coinOrderSettings)
 
-			spotPrice, errSP := s.agentHyper.GetMartketPx(c.MarketSpotId)
+			var spotPrice, perpPrice float64
+			var errSP, errPP error
+			priceGroup := &sync.WaitGroup{}
+
+			priceGroup.Add(1)
+			go func(spotPrice *float64, errSP *error) {
+				sp, errP := s.agentHyper.GetMartketPx(c.MarketSpotId)
+				*spotPrice = sp
+				*errSP = errP
+				priceGroup.Done()
+			}(&spotPrice, &errSP)
+			priceGroup.Add(1)
+			go func(perpPrice *float64, errPP *error) {
+				pp, errP := s.agentHyper.GetMartketPx(c.MarketPerpId)
+				*perpPrice = pp
+				*errPP = errP
+				priceGroup.Done()
+			}(&perpPrice, &errPP)
+
+			priceGroup.Wait()
+
 			if errSP != nil {
 				logrus.Errorf("[%s][ErrGetSpotPrice] %s, skip", c.Name, errSP.Error())
 				continue
 			}
-			perpPrice, errPP := s.agentHyper.GetMartketPx(c.MarketPerpId)
 			if errPP != nil {
 				logrus.Errorf("[%s][ErrGetPerpPrice] %s, skip", c.Name, errPP.Error())
 				continue
@@ -227,7 +247,6 @@ func (s *Service) Run() {
 			//check 阈值和是否允许开仓判断也在get action里进行
 			action := s.GetCoinOrderAction(c, priceDiffRatio)
 			if action != OrderNoAction {
-				logrus.Warnf("[OrderAction][%s]", c.Name)
 				orderParam, err := s.GetOrderParam(action, c)
 				if err != nil {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
@@ -350,7 +369,27 @@ func (s *Service) CheckOrder(coin *Coin, orderParam *OrderParam, orderResp *hype
 }
 
 func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, error) {
-	spotBook, spotBookErr := s.agentHyper.GetL2BookSnapshot(c.MarketSpotId)
+	var spotBook, perpBook *hyperliquid.L2BookSnapshot
+	var spotBookErr, perpBookErr error
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		spotBookS, spotBookErrS := s.agentHyper.GetL2BookSnapshot(c.MarketSpotId)
+		spotBook = spotBookS
+		spotBookErr = spotBookErrS
+
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		perpBookS, perpBookErrS := s.agentHyper.GetL2BookSnapshot(c.MarketPerpId)
+		perpBook = perpBookS
+		perpBookErr = perpBookErrS
+	}()
+	wg.Wait()
+
 	if spotBookErr != nil {
 		logrus.Errorf("Error getting spot book: %v", spotBookErr)
 		return nil, spotBookErr
@@ -358,7 +397,6 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 	if len(spotBook.Levels) < 2 {
 		return nil, fmt.Errorf("[%s] spot order book lack bid/ask, length: %d, skip coin", c.Name, len(spotBook.Levels))
 	}
-	perpBook, perpBookErr := s.agentHyper.GetL2BookSnapshot(c.MarketPerpId)
 	if perpBookErr != nil {
 		logrus.Errorf("Error getting perp book: %v", perpBookErr)
 		return nil, perpBookErr
