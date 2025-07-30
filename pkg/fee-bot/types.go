@@ -22,8 +22,10 @@ type Coin struct {
 	Leverage           int
 }
 
-func (c *Coin) SpotPositionEqualWithPerp() bool {
-	usdDiff := math.Abs(c.SpotEntryNtl - c.PositionUSD)
+func (c *Coin) SpotPositionEqualWithPerp(spotPrice float64) bool {
+	//usdDiff := math.Abs(c.SpotEntryNtl - c.PositionUSD)
+	sizeDiff := c.SpotBalance - math.Abs(c.PositionSize)
+	usdDiff := math.Abs(sizeDiff * spotPrice)
 	if c.SpotEntryNtl == 0 && c.PositionUSD == 0 {
 		//都卖光了
 		return true

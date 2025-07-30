@@ -204,7 +204,7 @@ func (s *Service) Run() {
 				continue
 			}
 
-			if !c.SpotPositionEqualWithPerp() {
+			if !c.SpotPositionEqualWithPerp(spotPrice) {
 				s.LogErrorAndNotifyDev(fmt.Sprintf("[%s][头寸核对异常] spot:perp - %f : %f, ratio: %.2f%%", c.Name, c.SpotBalance, -c.PositionSize, (c.SpotBalance-(-c.PositionSize))/(-c.PositionSize)*100))
 				s.ReBalanceCoinPosition(c, spotPrice, perpPrice)
 				//执行完后跳过其他token直接进行下一轮检查
@@ -232,9 +232,11 @@ func (s *Service) Run() {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
 					continue
 				}
-
-				s.ExecOrder(action, c, orderParam)
-				logrus.Warnf("open success")
+				if math.Abs(orderParam.Size) != 0 {
+					s.ExecOrder(action, c, orderParam)
+					//执行完后直接进入下一轮，重新检查参数
+					break
+				}
 			}
 		}
 
@@ -252,7 +254,7 @@ func (ps *orderSetting) SetDenyOpenOrder() {
 
 func (s *Service) reBalanceOrderRatio(crossAccountLeverage float64) {
 	if crossAccountLeverage < 1 {
-		s.orderSetting.reBalanceRatio = -0.3 //todo: 正式的时候修改回来
+		s.orderSetting.reBalanceRatio = -0.2 //todo: 正式的时候修改回来
 		s.orderSetting.SetAllowOpenOrder()
 	} else if crossAccountLeverage > 1 && crossAccountLeverage <= 1.5 {
 		s.orderSetting.reBalanceRatio = 0
@@ -436,9 +438,9 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin) (*OrderParam, er
 			logrus.Errorf("[%s] perp order book [Ask] lack , skip coin", c.Name)
 			return nil, err
 		}
-		ask := spotBook.Levels[1][0]
+		ask := perpBook.Levels[1][0]
 
-		logrus.Infof("[%s][orderBook] 现货买1: %v, 合约买1: %v", c.Name, bid, ask)
+		logrus.Infof("[%s][orderBook] 现货买1: %v, 合约卖1: %v", c.Name, bid, ask)
 
 		orderSz = math.Min(ask.Sz*0.5, bid.Sz*0.5)
 		orderPriceDiff := (bid.Px - ask.Px) / ask.Px * 100
