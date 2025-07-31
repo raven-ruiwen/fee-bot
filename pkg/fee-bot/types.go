@@ -17,6 +17,7 @@ type Coin struct {
 	PositionMarginUsed float64
 	SpotBalance        float64
 	SpotEntryNtl       float64
+	SpotValueUSD       float64
 	DecimalSpot        decimal.Decimal
 	DecimalPerp        decimal.Decimal
 	Leverage           int
@@ -35,6 +36,14 @@ func (c *Coin) SpotPositionEqualWithPerp(spotPrice float64) bool {
 	}
 	//usd 差异达到10 u以上
 	return false
+}
+
+func (c *Coin) ResetPositions() {
+	c.PositionUSD = 0
+	c.PositionSize = 0
+	c.PositionMarginUsed = 0
+	c.SpotBalance = 0
+	c.SpotEntryNtl = 0
 }
 
 func (c *Coin) GetLeverage(accountValue float64) float64 {
@@ -58,4 +67,15 @@ type RespDataExchange struct {
 	Response struct {
 		Type string `json:"type"`
 	} `json:"response"`
+}
+
+type MarketData struct {
+	SpotBidPrice float64
+	SpotBidSize  float64
+	SpotAskPrice float64
+	SpotAskSize  float64
+	PerpBidPrice float64
+	PerpBidSize  float64
+	PerpAskPrice float64
+	PerpAskSize  float64
 }

@@ -25,8 +25,21 @@ func main() {
 	accountAddress := base.PkToAddress(config.Hyper.AccountPk)
 	agentAddress := base.PkToAddress(config.Hyper.AgentPk)
 
-	coins = append(coins, &fee_bot.Coin{Name: "HYPE", MarketSpotId: "@107", MarketPerpId: "HYPE", PositionMaxRatio: 80, OrderSpotId: "HYPE", OrderPerpId: "HYPE", Leverage: 5})
-	coins = append(coins, &fee_bot.Coin{Name: "FARTCOIN", MarketSpotId: "@162", MarketPerpId: "FARTCOIN", PositionMaxRatio: 20, OrderSpotId: "UFART", OrderPerpId: "FARTCOIN", Leverage: 5})
+	for _, token := range config.Hyper.Tokens {
+		coins = append(coins, &fee_bot.Coin{
+			Name:             token.Name,
+			OrderSpotId:      token.OrderSpotId,
+			OrderPerpId:      token.OrderPerpId,
+			MarketSpotId:     token.MarketSpotId,
+			MarketPerpId:     token.MarketPerpId,
+			Leverage:         token.Leverage,
+			PositionMaxRatio: token.PositionMaxRatio,
+		})
+	}
+
+	//coins = append(coins, &fee_bot.Coin{Name: "HYPE", MarketSpotId: "@107", MarketPerpId: "HYPE", PositionMaxRatio: 30, OrderSpotId: "HYPE", OrderPerpId: "HYPE", Leverage: 5})
+	//coins = append(coins, &fee_bot.Coin{Name: "FARTCOIN", MarketSpotId: "@162", MarketPerpId: "FARTCOIN", PositionMaxRatio: 50, OrderSpotId: "UFART", OrderPerpId: "FARTCOIN", Leverage: 5})
+	//coins = append(coins, &fee_bot.Coin{Name: "PURR", MarketSpotId: "PURR/USDC", MarketPerpId: "PURR", PositionMaxRatio: 20, OrderSpotId: "PURR", OrderPerpId: "PURR", Leverage: 3})
 	//coins = append(coins, &fee_bot.Coin{Name: "PUMP", MarketSpotId: "@188", MarketPerpId: "PUMP", PositionMaxRatio: 50, OrderSpotId: "UPUMP", OrderPerpId: "PUMP", Leverage: 5})
 
 	accountHyper := hyperliquid.NewHyperliquid(&hyperliquid.HyperliquidClientConfig{
@@ -41,7 +54,7 @@ func main() {
 		PrivateKey:     config.Hyper.AgentPk, // Private key of the account or API private key from Hyperliquid
 	})
 
-	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 7, notifyClient)
+	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 3, notifyClient)
 	service.Init()
 	service.Run()
 }

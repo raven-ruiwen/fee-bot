@@ -2,3 +2,29 @@ bot:
   hyper:
     account_pk: 7776……
     agent_pk: 5756……
+    tokens:
+      - name: HYPE
+        market_spot_id: "@107"
+        market_perp_id: HYPE
+        position_max_ratio: 30
+        order_spot_id: HYPE
+        order_perp_id: HYPE
+        leverage: 5
+      - name: FARTCOIN
+        market_spot_id: "@162"
+        market_perp_id: FARTCOIN
+        position_max_ratio: 50
+        order_spot_id: UFART
+        order_perp_id: FARTCOIN
+        leverage: 5
+      - name: PURR
+        market_spot_id: PURR/USDC
+        market_perp_id: PURR
+        position_max_ratio: 20
+        order_spot_id: PURR
+        order_perp_id: PURR
+        leverage: 3
+  notifies:
+    - platform: slack
+      token: xoxb-3
+      channel: C0

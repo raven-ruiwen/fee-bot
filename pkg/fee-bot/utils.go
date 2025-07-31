@@ -50,3 +50,49 @@ func ToTypedSig(r [32]byte, s [32]byte, v byte) RsvSignature {
 		V: v,
 	}
 }
+
+type FeeData struct {
+	DailyUserVlm []struct {
+		Date      string `json:"date"`
+		UserCross string `json:"userCross"`
+		UserAdd   string `json:"userAdd"`
+		Exchange  string `json:"exchange"`
+	} `json:"dailyUserVlm"`
+	FeeSchedule struct {
+		Cross     string `json:"cross"`
+		Add       string `json:"add"`
+		SpotCross string `json:"spotCross"`
+		SpotAdd   string `json:"spotAdd"`
+		Tiers     struct {
+			Vip []struct {
+				NtlCutoff string `json:"ntlCutoff"`
+				Cross     string `json:"cross"`
+				Add       string `json:"add"`
+				SpotCross string `json:"spotCross"`
+				SpotAdd   string `json:"spotAdd"`
+			} `json:"vip"`
+			Mm []struct {
+				MakerFractionCutoff string `json:"makerFractionCutoff"`
+				Add                 string `json:"add"`
+			} `json:"mm"`
+		} `json:"tiers"`
+		ReferralDiscount     string `json:"referralDiscount"`
+		StakingDiscountTiers []struct {
+			BpsOfMaxSupply string `json:"bpsOfMaxSupply"`
+			Discount       string `json:"discount"`
+		} `json:"stakingDiscountTiers"`
+	} `json:"feeSchedule"`
+	UserCrossRate               string      `json:"userCrossRate"`
+	UserAddRate                 string      `json:"userAddRate"`
+	UserSpotCrossRate           string      `json:"userSpotCrossRate"`
+	UserSpotAddRate             string      `json:"userSpotAddRate"`
+	ActiveReferralDiscount      string      `json:"activeReferralDiscount"`
+	Trial                       interface{} `json:"trial"`
+	FeeTrialReward              string      `json:"feeTrialReward"`
+	NextTrialAvailableTimestamp interface{} `json:"nextTrialAvailableTimestamp"`
+	StakingLink                 interface{} `json:"stakingLink"`
+	ActiveStakingDiscount       struct {
+		BpsOfMaxSupply string `json:"bpsOfMaxSupply"`
+		Discount       string `json:"discount"`
+	} `json:"activeStakingDiscount"`
+}
