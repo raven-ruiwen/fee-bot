@@ -213,7 +213,7 @@ func (s *Service) Run() {
 
 		//检查交易币种
 		for _, c := range s.tradeCoins {
-			logrus.Infof("---------%s---------", c.Name)
+			logrus.Infof("🟢%s", c.Name)
 			//单币下单参数阈值初始化
 			coinOrderSettings := s.getOrderSettingsByCoinLeverage(c.GetLeverage(s.perpAccount.AccountValue))
 			c.SetOrderSettings(coinOrderSettings)
@@ -223,25 +223,21 @@ func (s *Service) Run() {
 				logrus.Errorf("[%s][GetMarketData] %s, skip", c.Name, err.Error())
 				continue
 			}
-			spotPrice := marketData.SpotAskPrice
-			perpPrice := marketData.PerpBidPrice
 
-			if !c.SpotPositionEqualWithPerp(spotPrice) {
+			if !c.SpotPositionEqualWithPerp(marketData.SpotBidPrice) {
 				s.LogErrorAndNotifyDev(fmt.Sprintf("[%s][头寸核对异常] spot:perp - %f : %f, ratio: %.2f%%", c.Name, c.SpotBalance, -c.PositionSize, (c.SpotBalance-(-c.PositionSize))/(-c.PositionSize)*100))
-				s.ReBalanceCoinPosition(c, spotPrice, perpPrice)
+				s.ReBalanceCoinPosition(c, marketData)
 				//执行完后跳过其他token直接进行下一轮检查
 				break
 			}
 
-			priceDiffRatio := (perpPrice - spotPrice) / spotPrice * 100
-
-			logrus.Infof("[%s][差价] 当前差价 %.2f%%（perp: %f : spot: %f）, 开仓差价: %.2f%%, 关仓差价: %.2f%%", c.Name, priceDiffRatio, perpPrice, spotPrice, c.GetAllowOpenPriceDiffRatio(), c.GetAllowClosePriceDiff())
+			logrus.Infof("[%s][差价] open差价 %.2f%%(%.2f%%), close差价: %.2f%%(%.2f%%)", c.Name, marketData.OpenSpreadPercentage, c.GetAllowOpenPriceDiffRatio(), marketData.CloseSpreadPercentage, c.GetAllowClosePriceDiff())
 			//check 阈值和是否允许开仓判断也在get action里进行
-			action := s.GetCoinOrderAction(c, priceDiffRatio)
+			action := s.GetCoinOrderAction(c, marketData)
 
 			//计算仓位占比: (现货usd价值 + 合约目前的positionUSD) / (现货的总USD价值 + 合约accountValue*最高2倍杠杆下的价值) * 100
 			totalSpotEntryUSD := s.GetSpotEntryValue()
-			coinUSDRatio := (c.SpotBalance*spotPrice + c.PositionUSD) / (totalSpotEntryUSD + s.perpAccount.AccountValue) * 100
+			coinUSDRatio := (c.SpotBalance*marketData.SpotBidPrice + c.PositionUSD) / (totalSpotEntryUSD + s.perpAccount.AccountValue) * 100
 			logrus.Infof("[%s][Perp杠杆率] %.2fx, 能否开仓：%v", c.Name, c.GetLeverage(s.perpAccount.AccountValue), c.OrderSetting.isAllowedOpenOrder)
 			if coinUSDRatio > c.PositionMaxRatio {
 				logrus.Warnf("[%s][单币开仓比例达到上限] %.1f%%(max %.1f%%)", c.Name, coinUSDRatio, c.PositionMaxRatio)
@@ -319,6 +315,10 @@ func (s *Service) getMarketData(c *Coin) (MarketData, error) {
 		PerpAskPrice: perpBook.Levels[1][0].Px,
 		PerpAskSize:  perpBook.Levels[1][0].Sz,
 	}
+
+	marketData.OpenSpreadPercentage = (marketData.PerpBidPrice - marketData.SpotAskPrice) / marketData.SpotAskPrice * 100
+	marketData.CloseSpreadPercentage = (marketData.PerpAskPrice - marketData.SpotBidPrice) / marketData.SpotBidPrice * 100
+
 	return marketData, nil
 }
 
@@ -361,7 +361,8 @@ func (s *Service) needForceLiquidation(crossAccountLeverage float64) bool {
 
 func (s *Service) LogErrorAndNotifyDev(msg string) {
 	logrus.Errorf(msg)
-	go s.notify.SendMsg("[Fee-Bot Error]", msg)
+	topic := "[HyperLiquid Funding Fee Alert]"
+	go s.notify.SendMsg(topic, topic+"\n"+msg+"<@U045K1VRRP0>")
 }
 
 func (s *Service) GetSpotEntryValue() float64 {
@@ -372,14 +373,14 @@ func (s *Service) GetSpotEntryValue() float64 {
 	return totalUSDC + s.spotAccount.AvailableUSDC
 }
 
-func (s *Service) GetCoinOrderAction(coin *Coin, priceDiffRate float64) OrderAction {
+func (s *Service) GetCoinOrderAction(coin *Coin, marketData MarketData) OrderAction {
 	allowOpenPriceDiff := coin.GetAllowOpenPriceDiffRatio()
 	allowClosePriceDiff := coin.GetAllowClosePriceDiff()
 
-	if priceDiffRate > allowOpenPriceDiff && coin.OrderSetting.isAllowedOpenOrder {
+	if marketData.OpenSpreadPercentage > allowOpenPriceDiff && coin.OrderSetting.isAllowedOpenOrder {
 		return OrderSellPerpBuySpot
 	}
-	if priceDiffRate < allowClosePriceDiff {
+	if marketData.CloseSpreadPercentage < allowClosePriceDiff {
 		return OrderSellSpotBuyPerp
 	}
 	return OrderNoAction
@@ -429,7 +430,8 @@ func (s *Service) CheckOrder(coin *Coin, orderParam *OrderParam, orderResp *hype
 		go s.LogErrorAndNotifyDev(fmt.Sprintf("[CheckOrderFailed][%s] status: %s, order param: %s, resp: %s", coin.Name, orderResp.Status, string(paramJson), string(respJson)))
 		return false
 	}
-	logrus.Infof("[OrderSuccess][%s] param: %s, resp: %s", coin.Name, string(paramJson), string(respJson))
+	//logrus.Infof("[OrderSuccess][%s] param: %s, resp: %s", coin.Name, string(paramJson), string(respJson))
+	s.LogErrorAndNotifyDev(fmt.Sprintf("[OrderSuccess][%s] param: %s, resp: %s", coin.Name, string(paramJson), string(respJson)))
 	return true
 }
 
@@ -464,10 +466,10 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 		orderSz = math.Min(orderSz, spotMaxSz)
 
 		if orderSz*marketData.SpotAskPrice < 10 {
-			return nil, fmt.Errorf("order usd size too small, skip")
+			return nil, fmt.Errorf("order USD value too small: %.2f, skip", orderSz*marketData.SpotAskPrice)
 		}
 
-		logrus.Infof("[%s][orderParam] raw size: %f, free size: %f, final size: %f, 差价: %f", c.Name, basicSize, freePositionSize, orderSz, orderPriceDiff)
+		logrus.Infof("[开仓][%s][orderParam] raw size: %f, free size: %f, final size: %f, 差价: %f", c.Name, basicSize, freePositionSize, orderSz, orderPriceDiff)
 	} else {
 		orderSz = math.Min(marketData.PerpAskSize*0.5, marketData.SpotBidSize*0.5)
 		orderPriceDiff := (marketData.SpotBidPrice - marketData.PerpAskPrice) / marketData.PerpAskPrice * 100
@@ -475,7 +477,7 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 		//检查持有量，选min（持有量，orderSZ）
 		orderSz = math.Min(orderSz, c.SpotBalance)
 
-		logrus.Infof("[%s][orderParam] size: %f, 差价:  %f", c.Name, orderSz, orderPriceDiff)
+		logrus.Infof("[关仓][%s][orderParam] size: %f, 差价:  %f", c.Name, orderSz, orderPriceDiff)
 	}
 
 	//修正精度
@@ -488,7 +490,7 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 	}, nil
 }
 
-func (s *Service) ReBalanceCoinPosition(c *Coin, spotPrice float64, perpPrice float64) {
+func (s *Service) ReBalanceCoinPosition(c *Coin, marketData MarketData) {
 	var action OrderAction
 	var tokenSize float64
 	spotBalance := c.SpotBalance
@@ -500,7 +502,7 @@ func (s *Service) ReBalanceCoinPosition(c *Coin, spotPrice float64, perpPrice fl
 			//现货多，继续做空
 			action = OrderMarketPerp
 			tokenSize = (spotBalance - perpPositionSizeHold) * -1 //卖空的是负数
-			needUSDC := perpPrice * tokenSize
+			needUSDC := marketData.PerpBidPrice * tokenSize
 			if s.perpAccount.AvailableUSDC < needUSDC {
 				//合约账户usdc不够，转为卖掉现货头寸来平衡
 				action = OrderMarketSpot
@@ -509,7 +511,7 @@ func (s *Service) ReBalanceCoinPosition(c *Coin, spotPrice float64, perpPrice fl
 			//现货少，买入现货
 			action = OrderMarketSpot
 			tokenSize = perpPositionSizeHold - spotBalance
-			needUSDC := spotPrice * tokenSize
+			needUSDC := marketData.SpotAskPrice * tokenSize
 			if s.spotAccount.AvailableUSDC < needUSDC {
 				//现货账户usdc不够，转为平掉一部分空单头寸来平衡
 				action = OrderMarketPerp

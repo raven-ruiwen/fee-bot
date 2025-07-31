@@ -70,12 +70,14 @@ type RespDataExchange struct {
 }
 
 type MarketData struct {
-	SpotBidPrice float64
-	SpotBidSize  float64
-	SpotAskPrice float64
-	SpotAskSize  float64
-	PerpBidPrice float64
-	PerpBidSize  float64
-	PerpAskPrice float64
-	PerpAskSize  float64
+	SpotBidPrice          float64
+	SpotBidSize           float64
+	SpotAskPrice          float64
+	SpotAskSize           float64
+	PerpBidPrice          float64
+	PerpBidSize           float64
+	PerpAskPrice          float64
+	PerpAskSize           float64
+	OpenSpreadPercentage  float64
+	CloseSpreadPercentage float64
 }
