@@ -6,9 +6,11 @@ type BotConfig struct {
 }
 
 type HyperConfig struct {
-	AccountPk string  `mapstructure:"account_pk"`
-	AgentPk   string  `mapstructure:"agent_pk"`
-	Tokens    []Token `mapstructure:"tokens"`
+	AccountPk                     string  `mapstructure:"account_pk"`
+	AgentPk                       string  `mapstructure:"agent_pk"`
+	BasicOpenOrderPriceDiffRatio  float64 `mapstructure:"basic_open_order_price_diff_ratio"`
+	BasicCloseOrderPriceDiffRatio float64 `mapstructure:"basic_close_order_price_diff_ratio"`
+	Tokens                        []Token `mapstructure:"tokens"`
 }
 
 type Notifies []Notify

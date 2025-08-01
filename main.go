@@ -53,7 +53,8 @@ func main() {
 		AccountAddress: agentAddress,         // Main address of the Hyperliquid account that you want to use
 		PrivateKey:     config.Hyper.AgentPk, // Private key of the account or API private key from Hyperliquid
 	})
-
+	fee_bot.SetBasicOpenOrderPriceDiffRatio(config.Hyper.BasicOpenOrderPriceDiffRatio)
+	fee_bot.SetBasicCloseOrderPriceDiffRatio(config.Hyper.BasicCloseOrderPriceDiffRatio)
 	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 3, notifyClient)
 	service.Init()
 	service.Run()

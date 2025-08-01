@@ -15,6 +15,18 @@ import (
 	"time"
 )
 
+var BasicOpenOrderPriceDiffRatio float64
+
+func SetBasicOpenOrderPriceDiffRatio(ratio float64) {
+	BasicOpenOrderPriceDiffRatio = ratio
+}
+
+var BasicCloseOrderPriceDiffRatio float64
+
+func SetBasicCloseOrderPriceDiffRatio(ratio float64) {
+	BasicCloseOrderPriceDiffRatio = ratio
+}
+
 type Service struct {
 	agentHyper     *hyperliquid.Hyperliquid
 	accountHyper   *hyperliquid.Hyperliquid
@@ -151,7 +163,7 @@ func (s *Service) Run() {
 		for _, balance := range stateSpot.Balances {
 			if balance.Coin == "USDC" {
 				s.spotAccount.AvailableUSDC = balance.Total
-				logrus.Infof("[Spot][Set Available USDC] %f", balance.Total)
+				//logrus.Infof("[Spot][Set Available USDC] %f", balance.Total)
 				continue
 			}
 			for i, coin := range s.tradeCoins {
@@ -175,6 +187,7 @@ func (s *Service) Run() {
 		}
 
 		logrus.Warnf("[Perp] account value: %.2f, 可用USDC: %f, 杠杆倍数: %.3fx", perpAccountValue, s.perpAccount.AvailableUSDC, s.perpAccount.CrossAccountLeverage)
+		logrus.Warnf("[Spot] total value USD: %.2f, available USDC: %.2f", s.getSpotAccountValueUsdWithUSDC(), s.spotAccount.AvailableUSDC)
 
 		if need, toPerp, transferAmount := s.needReBalanceLeverage(); need {
 			result, err := s.AccountTransferUSDC(transferAmount, toPerp)
@@ -236,8 +249,8 @@ func (s *Service) Run() {
 			//check 阈值和是否允许开仓判断也在get action里进行
 			action := s.GetCoinOrderAction(c, marketData)
 
-			//计算仓位占比: (现货usd价值 + 合约目前的positionUSD) / (现货的总USD价值 + 合约accountValue*最高2倍杠杆下的价值) * 100
-			totalSpotEntryUSD := s.GetSpotEntryValue()
+			//计算仓位占比: (现货usd价值 + 合约目前的positionUSD) / (现货的总USD价值 + 合约accountValue) * 100
+			totalSpotEntryUSD := s.getSpotAccountValueUsdWithUSDC()
 			coinUSDRatio := (c.SpotBalance*marketData.SpotBidPrice + c.PositionUSD) / (totalSpotEntryUSD + s.perpAccount.AccountValue) * 100
 			logrus.Infof("[%s][Perp杠杆率] %.2fx, 能否开仓：%v", c.Name, c.GetLeverage(s.perpAccount.AccountValue), c.OrderSetting.isAllowedOpenOrder)
 			if coinUSDRatio > c.PositionMaxRatio {
@@ -267,6 +280,18 @@ func (s *Service) Run() {
 
 		time.Sleep(s.runInterval * time.Second)
 	}
+}
+
+func (s *Service) getSpotAccountValueUsdWithoutUSDC() float64 {
+	var totalUSD float64
+	for _, coin := range s.tradeCoins {
+		totalUSD += coin.SpotValueUSD
+	}
+	return totalUSD
+}
+
+func (s *Service) getSpotAccountValueUsdWithUSDC() float64 {
+	return s.getSpotAccountValueUsdWithoutUSDC() + s.spotAccount.AvailableUSDC
 }
 
 func (s *Service) getMarketData(c *Coin) (MarketData, error) {
@@ -397,23 +422,51 @@ func (s *Service) ExecOrder(direction OrderAction, coin *Coin, orderParam *Order
 	spotFeeMulti := 1 + spotFee.InexactFloat64()
 	if direction == OrderSellPerpBuySpot {
 		//卖合约，买现货
-		resp, err := s.agentHyper.MarketOrder(coin.OrderPerpId, -orderParam.Size, nil)
-		if !s.CheckOrder(coin, orderParam, resp, err) {
-			return
-		}
-		buySpotSize := TruncateFloat(orderParam.Size*spotFeeMulti, coin.DecimalSpot.BigInt().Int64())
-		resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, buySpotSize, nil)
-		if s.CheckOrder(coin, orderParam, resp1, err1) {
+		allSuccess := true
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := s.agentHyper.MarketOrder(coin.OrderPerpId, -orderParam.Size, nil)
+			if !s.CheckOrder(coin, orderParam, resp, err) {
+				allSuccess = false
+			}
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			buySpotSize := TruncateFloat(orderParam.Size*spotFeeMulti, coin.DecimalSpot.BigInt().Int64())
+			resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, buySpotSize, nil)
+			if !s.CheckOrder(coin, orderParam, resp1, err1) {
+				allSuccess = false
+			}
+		}()
+		wg.Wait()
+		if allSuccess {
 			s.OrderSuccessNotify(direction, orderParam)
 		}
 	} else if direction == OrderSellSpotBuyPerp {
 		//卖现货，买合约
-		resp, err := s.agentHyper.MarketOrder(coin.OrderPerpId, orderParam.Size, nil)
-		if !s.CheckOrder(coin, orderParam, resp, err) {
-			return
-		}
-		resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, -orderParam.Size, nil)
-		if s.CheckOrder(coin, orderParam, resp1, err1) {
+		allSuccess := true
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := s.agentHyper.MarketOrder(coin.OrderPerpId, orderParam.Size, nil)
+			if !s.CheckOrder(coin, orderParam, resp, err) {
+				allSuccess = false
+			}
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, -orderParam.Size, nil)
+			if s.CheckOrder(coin, orderParam, resp1, err1) {
+				allSuccess = false
+			}
+		}()
+		wg.Wait()
+		if allSuccess {
 			s.OrderSuccessNotify(direction, orderParam)
 		}
 	} else if direction == OrderMarketSpot {
@@ -454,7 +507,7 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 
 	if direction == OrderSellPerpBuySpot {
 		//choose order size: min(spot ask1, perp bid1) / 2
-		basicSize := math.Min(marketData.SpotAskSize*0.5, marketData.PerpBidSize*0.5)
+		basicSize := math.Min(marketData.SpotAskSize*0.3, marketData.PerpBidSize*0.3)
 		orderPriceDiff := (marketData.PerpBidPrice - marketData.SpotAskPrice) / marketData.SpotAskPrice * 100
 
 		//判断剩余可开仓位,不能超过设置的最大占比
@@ -468,7 +521,10 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 		//开完单笔后当前perp最高2倍杠杆
 		maxLeverageUSD := 2*s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos
 		orderUSD = math.Min(orderUSD, maxLeverageUSD)
-
+		//最高单笔不能超过上限
+		if orderUSD > MaxOpenOrderUSD {
+			orderUSD = MaxOpenOrderUSD
+		}
 		//2bei
 		freePositionSize := orderUSD / marketData.PerpBidPrice
 		//可开额度和买1/卖1的比较，取最小的
@@ -485,7 +541,7 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 
 		logrus.Infof("[开仓][%s][orderParam] raw size: %f, free size: %f, final size: %f, 差价: %f", c.Name, basicSize, freePositionSize, orderSz, orderPriceDiff)
 	} else {
-		orderSz = math.Min(marketData.PerpAskSize*0.5, marketData.SpotBidSize*0.5)
+		orderSz = math.Min(marketData.PerpAskSize*0.25, marketData.SpotBidSize*0.25)
 		orderPriceDiff := (marketData.SpotBidPrice - marketData.PerpAskPrice) / marketData.PerpAskPrice * 100
 
 		//检查持有量，选min（持有量，orderSZ）
@@ -630,9 +686,9 @@ func (s *Service) needReBalanceLeverage() (bool, bool, float64) {
 		//额外多判断一个杠杆率
 		return false, toPerp, 0
 	}
-	if s.perpAccount.CrossAccountLeverage > 1.5 {
+	if s.perpAccount.CrossAccountLeverage > 2 {
 		toPerp = true
-		targetLeverage := 1.1
+		targetLeverage := 1.5
 		needMoreUSDC := (s.perpAccount.TotalNtlPos - targetLeverage*s.perpAccount.AccountValue) / targetLeverage
 		needMoreUSDC = math.Max(needMoreUSDC, 100)
 		//判断现货账户是否有这么多的余额
@@ -642,9 +698,9 @@ func (s *Service) needReBalanceLeverage() (bool, bool, float64) {
 		}
 		return true, toPerp, needMoreUSDC
 	}
-	if s.perpAccount.CrossAccountLeverage < 0.7 {
+	if s.perpAccount.CrossAccountLeverage < 1 {
 		toPerp = false
-		needMoreUSDC := (s.perpAccount.AccountValue - s.perpAccount.TotalNtlPos) * 0.55
+		needMoreUSDC := ((s.getSpotAccountValueUsdWithUSDC() + s.perpAccount.AccountValue) * 0.6) - s.getSpotAccountValueUsdWithoutUSDC()
 		needMoreUSDC = math.Max(needMoreUSDC, 100)
 		//判断perp账户余额
 		if s.perpAccount.AvailableUSDC < needMoreUSDC {
