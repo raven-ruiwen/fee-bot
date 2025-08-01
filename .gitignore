@@ -1,5 +1,5 @@
 test/config.yaml
-conf/config.cs.yaml
+conf/config.yaml
 test/
 .idea
 logs/
