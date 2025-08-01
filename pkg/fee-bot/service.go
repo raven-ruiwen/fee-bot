@@ -41,6 +41,7 @@ type Service struct {
 
 type spotAccount struct {
 	AvailableUSDC float64
+	TotalValueUSD float64
 }
 
 type perpAccount struct {
@@ -176,6 +177,7 @@ func (s *Service) Run() {
 						initHasError = true
 					}
 					s.tradeCoins[i].SpotValueUSD = balance.Total * marketData.SpotBidPrice
+					s.tradeCoins[i].MarketData = marketData
 					logrus.Infof("[Spot][Set Balance] %s -> %f, now USD: %f", balance.Coin, balance.Total, s.tradeCoins[i].SpotValueUSD)
 				} else {
 					//logrus.Errorf("[Spot][Set Balance] %s -> %f", balance.Coin, balance.Total)
@@ -185,6 +187,8 @@ func (s *Service) Run() {
 		if initHasError {
 			continue
 		}
+		s.spotAccount.TotalValueUSD = s.getSpotAccountValueUsdWithUSDC()
+		go pushData(s.spotAccount, s.perpAccount, s.tradeCoins)
 
 		logrus.Warnf("[Perp] account value: %.2f, 可用USDC: %f, 杠杆倍数: %.3fx", perpAccountValue, s.perpAccount.AvailableUSDC, s.perpAccount.CrossAccountLeverage)
 		logrus.Warnf("[Spot] total value USD: %.2f, available USDC: %.2f", s.getSpotAccountValueUsdWithUSDC(), s.spotAccount.AvailableUSDC)
@@ -461,7 +465,7 @@ func (s *Service) ExecOrder(direction OrderAction, coin *Coin, orderParam *Order
 		go func() {
 			defer wg.Done()
 			resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, -orderParam.Size, nil)
-			if s.CheckOrder(coin, orderParam, resp1, err1) {
+			if !s.CheckOrder(coin, orderParam, resp1, err1) {
 				allSuccess = false
 			}
 		}()
@@ -542,6 +546,8 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 		logrus.Infof("[开仓][%s][orderParam] raw size: %f, free size: %f, final size: %f, 差价: %f", c.Name, basicSize, freePositionSize, orderSz, orderPriceDiff)
 	} else {
 		orderSz = math.Min(marketData.PerpAskSize*0.25, marketData.SpotBidSize*0.25)
+		maxOrderSz := MaxOpenOrderUSD / marketData.SpotBidPrice
+		orderSz = math.Min(orderSz, maxOrderSz)
 		orderPriceDiff := (marketData.SpotBidPrice - marketData.PerpAskPrice) / marketData.PerpAskPrice * 100
 
 		//检查持有量，选min（持有量，orderSZ）

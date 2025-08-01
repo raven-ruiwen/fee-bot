@@ -22,6 +22,7 @@ type Coin struct {
 	DecimalPerp        decimal.Decimal
 	Leverage           int
 	OrderSetting       orderSetting
+	MarketData         MarketData
 }
 
 func (c *Coin) SpotPositionEqualWithPerp(spotPrice float64) bool {

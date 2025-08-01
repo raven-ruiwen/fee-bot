@@ -1,11 +1,14 @@
 package base
 
 type BotConfig struct {
-	Hyper    HyperConfig `mapstructure:"hyper"`
-	Notifies Notifies    `mapstructure:"notifies"`
+	PushGateway string      `mapstructure:"push_gateway"`
+	Hyper       HyperConfig `mapstructure:"hyper"`
+	Notifies    Notifies    `mapstructure:"notifies"`
 }
 
 type HyperConfig struct {
+	StartAt                       int64   `mapstructure:"start_at"`
+	InitValue                     float64 `mapstructure:"init_value"`
 	AccountPk                     string  `mapstructure:"account_pk"`
 	AgentPk                       string  `mapstructure:"agent_pk"`
 	BasicOpenOrderPriceDiffRatio  float64 `mapstructure:"basic_open_order_price_diff_ratio"`
