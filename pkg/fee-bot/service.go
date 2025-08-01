@@ -252,11 +252,11 @@ func (s *Service) Run() {
 
 			if action != OrderNoAction {
 				orderParam, err := s.GetOrderParam(action, c, marketData)
-				orderParam.SpotPrice = marketData.SpotBidPrice
 				if err != nil {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
 					continue
 				}
+				orderParam.SpotPrice = marketData.SpotBidPrice
 				if math.Abs(orderParam.Size) != 0 {
 					s.ExecOrder(action, c, orderParam)
 					//执行完后直接进入下一轮，重新检查参数
