@@ -333,7 +333,7 @@ func (ps *orderSetting) SetDenyOpenOrder() {
 func (s *Service) getOrderSettingsByCoinLeverage(coinLeverage float64) orderSetting {
 	var coinOrderSetting orderSetting
 	if coinLeverage < 1 {
-		coinOrderSetting.reBalanceRatio = -0.2 //todo: 正式的时候修改回来
+		coinOrderSetting.reBalanceRatio = 0 //todo: 正式的时候修改回来, 原值-0.2
 		coinOrderSetting.SetAllowOpenOrder()
 	} else if coinLeverage > 1 && coinLeverage <= 1.5 {
 		coinOrderSetting.reBalanceRatio = 0
