@@ -2,6 +2,8 @@ bot:
   hyper:
     account_pk: 7776……
     agent_pk: 5756……
+    basic_open_order_price_diff_ratio: 0.3
+    basic_close_order_price_diff_ratio: -0.2
     tokens:
       - name: HYPE
         market_spot_id: "@107"
