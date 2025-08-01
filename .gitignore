@@ -1,4 +1,6 @@
-conf/config.yaml
+test/config.yaml
+conf/config.cs.yaml
+test/
 .idea
 logs/
 docker/

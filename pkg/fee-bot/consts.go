@@ -5,14 +5,14 @@ const BasicCloseOrderPriceDiffRatio = -0.1
 const LeverageForceLiquidation = 2.5
 const SingleLiquidationValueUSD = 3000
 
-type OrderAction int
+type OrderAction string
 
 const (
-	OrderSellPerpBuySpot OrderAction = iota
-	OrderSellSpotBuyPerp
-	OrderNoAction
-	OrderMarketSpot
-	OrderMarketPerp
+	OrderSellPerpBuySpot OrderAction = "OrderSellPerpBuySpot"
+	OrderSellSpotBuyPerp OrderAction = "OrderSellSpotBuyPerp"
+	OrderNoAction        OrderAction = "OrderNoAction"
+	OrderMarketSpot      OrderAction = "OrderMarketSpot"
+	OrderMarketPerp      OrderAction = "OrderMarketPerp"
 )
 
 const OrderStatusSuccess = "ok"

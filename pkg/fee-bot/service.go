@@ -44,8 +44,9 @@ type orderSetting struct {
 }
 
 type OrderParam struct {
-	Coin string
-	Size float64
+	Coin      string
+	Size      float64
+	SpotPrice float64
 }
 
 func NewService(accountAddress string, agentHyper *hyperliquid.Hyperliquid, accountHyper *hyperliquid.Hyperliquid, coins []*Coin, runInterval time.Duration, notify *notify.Service) *Service {
@@ -251,6 +252,7 @@ func (s *Service) Run() {
 
 			if action != OrderNoAction {
 				orderParam, err := s.GetOrderParam(action, c, marketData)
+				orderParam.SpotPrice = marketData.SpotBidPrice
 				if err != nil {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
 					continue
@@ -333,7 +335,7 @@ func (ps *orderSetting) SetDenyOpenOrder() {
 func (s *Service) getOrderSettingsByCoinLeverage(coinLeverage float64) orderSetting {
 	var coinOrderSetting orderSetting
 	if coinLeverage < 1 {
-		coinOrderSetting.reBalanceRatio = 0 //todo: 正式的时候修改回来, 原值-0.2
+		coinOrderSetting.reBalanceRatio = -0.15 //todo: 正式的时候修改回来, 原值-0.2
 		coinOrderSetting.SetAllowOpenOrder()
 	} else if coinLeverage > 1 && coinLeverage <= 1.5 {
 		coinOrderSetting.reBalanceRatio = 0
@@ -362,7 +364,7 @@ func (s *Service) needForceLiquidation(crossAccountLeverage float64) bool {
 func (s *Service) LogErrorAndNotifyDev(msg string) {
 	logrus.Errorf(msg)
 	topic := "[HyperLiquid Funding Fee Alert]"
-	go s.notify.SendMsg(topic, topic+"\n"+msg+"<@U045K1VRRP0>")
+	go s.notify.SendMsg(topic, msg)
 }
 
 func (s *Service) GetSpotEntryValue() float64 {
@@ -386,6 +388,10 @@ func (s *Service) GetCoinOrderAction(coin *Coin, marketData MarketData) OrderAct
 	return OrderNoAction
 }
 
+func (s *Service) OrderSuccessNotify(direction OrderAction, orderParam *OrderParam) {
+	s.LogErrorAndNotifyDev(fmt.Sprintf("[OrderSuccess][%s][`%s`] size: %f, usd value: $%.2f", direction, orderParam.Coin, orderParam.Size, orderParam.Size*orderParam.SpotPrice))
+}
+
 func (s *Service) ExecOrder(direction OrderAction, coin *Coin, orderParam *OrderParam) {
 	spotFee, _ := decimal.NewFromString(s.userFee.UserSpotCrossRate)
 	spotFeeMulti := 1 + spotFee.InexactFloat64()
@@ -397,7 +403,9 @@ func (s *Service) ExecOrder(direction OrderAction, coin *Coin, orderParam *Order
 		}
 		buySpotSize := TruncateFloat(orderParam.Size*spotFeeMulti, coin.DecimalSpot.BigInt().Int64())
 		resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, buySpotSize, nil)
-		s.CheckOrder(coin, orderParam, resp1, err1)
+		if s.CheckOrder(coin, orderParam, resp1, err1) {
+			s.OrderSuccessNotify(direction, orderParam)
+		}
 	} else if direction == OrderSellSpotBuyPerp {
 		//卖现货，买合约
 		resp, err := s.agentHyper.MarketOrder(coin.OrderPerpId, orderParam.Size, nil)
@@ -405,17 +413,23 @@ func (s *Service) ExecOrder(direction OrderAction, coin *Coin, orderParam *Order
 			return
 		}
 		resp1, err1 := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, -orderParam.Size, nil)
-		s.CheckOrder(coin, orderParam, resp1, err1)
+		if s.CheckOrder(coin, orderParam, resp1, err1) {
+			s.OrderSuccessNotify(direction, orderParam)
+		}
 	} else if direction == OrderMarketSpot {
 		orderSize := orderParam.Size
 		if orderSize > 0 {
 			orderSize = TruncateFloat(orderSize*spotFeeMulti, coin.DecimalSpot.BigInt().Int64())
 		}
 		resp, err := s.agentHyper.MarketOrderSpot(coin.OrderSpotId, orderParam.Size, nil)
-		s.CheckOrder(coin, orderParam, resp, err)
+		if s.CheckOrder(coin, orderParam, resp, err) {
+			s.OrderSuccessNotify(direction, orderParam)
+		}
 	} else if direction == OrderMarketPerp {
 		resp, err := s.agentHyper.MarketOrder(coin.OrderPerpId, orderParam.Size, nil)
-		s.CheckOrder(coin, orderParam, resp, err)
+		if s.CheckOrder(coin, orderParam, resp, err) {
+			s.OrderSuccessNotify(direction, orderParam)
+		}
 	}
 }
 
@@ -430,8 +444,8 @@ func (s *Service) CheckOrder(coin *Coin, orderParam *OrderParam, orderResp *hype
 		go s.LogErrorAndNotifyDev(fmt.Sprintf("[CheckOrderFailed][%s] status: %s, order param: %s, resp: %s", coin.Name, orderResp.Status, string(paramJson), string(respJson)))
 		return false
 	}
-	//logrus.Infof("[OrderSuccess][%s] param: %s, resp: %s", coin.Name, string(paramJson), string(respJson))
-	s.LogErrorAndNotifyDev(fmt.Sprintf("[OrderSuccess][%s] param: %s, resp: %s", coin.Name, string(paramJson), string(respJson)))
+	logrus.Infof("[OrderSuccess][%s] param: %s, resp: %s", coin.Name, string(paramJson), string(respJson))
+	//s.LogErrorAndNotifyDev(fmt.Sprintf("[OrderSuccess][%s] param: %s, resp: %s", coin.Name, string(paramJson), string(respJson)))
 	return true
 }
 
