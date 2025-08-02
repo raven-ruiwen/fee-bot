@@ -37,6 +37,7 @@ type Service struct {
 	perpAccount    perpAccount
 	notify         *notify.Service
 	userFee        FeeData
+	debugNotify    *notify.Service
 }
 
 type spotAccount struct {
@@ -62,7 +63,7 @@ type OrderParam struct {
 	SpotPrice float64
 }
 
-func NewService(accountAddress string, agentHyper *hyperliquid.Hyperliquid, accountHyper *hyperliquid.Hyperliquid, coins []*Coin, runInterval time.Duration, notify *notify.Service) *Service {
+func NewService(accountAddress string, agentHyper *hyperliquid.Hyperliquid, accountHyper *hyperliquid.Hyperliquid, coins []*Coin, runInterval time.Duration, notify *notify.Service, debugNotify *notify.Service) *Service {
 	s := &Service{}
 
 	s.accountAddress = accountAddress
@@ -77,6 +78,7 @@ func NewService(accountAddress string, agentHyper *hyperliquid.Hyperliquid, acco
 	s.tradeCoins = nameCoins
 	s.runInterval = runInterval
 	s.notify = notify
+	s.debugNotify = debugNotify
 
 	return s
 }
@@ -125,7 +127,8 @@ func (s *Service) Run() {
 		logrus.Infof("==========================================================================")
 		userFees, err := s.GetUserFee(s.accountAddress)
 		if err != nil {
-			s.LogErrorAndNotifyDev(fmt.Sprintf("[GetUserFeeFailed] %s", err.Error()))
+			s.LogDebugErrorAndNotifyDev(fmt.Sprintf("[GetUserFeeFailed] %s", err.Error()))
+			time.Sleep(time.Second)
 			continue
 		}
 		s.userFee = userFees
@@ -135,6 +138,7 @@ func (s *Service) Run() {
 		state, err := s.agentHyper.GetUserState(s.accountAddress)
 		if err != nil {
 			logrus.Errorf("Error getting user state: %v", err)
+			s.LogDebugErrorAndNotifyDev(fmt.Sprintf("[GetUserStateFailed] %s", err.Error()))
 			continue
 		}
 		perpAccountValue := state.CrossMarginSummary.AccountValue
@@ -146,6 +150,7 @@ func (s *Service) Run() {
 		stateSpot, err := s.agentHyper.GetUserStateSpot(s.accountAddress)
 		if err != nil {
 			logrus.Errorf("Error getting user state: %v", err)
+			s.LogDebugErrorAndNotifyDev(fmt.Sprintf("[GetUserStateSpotFailed] %s", err.Error()))
 			continue
 		}
 
@@ -173,7 +178,7 @@ func (s *Service) Run() {
 					s.tradeCoins[i].SpotEntryNtl = balance.EntryNtl
 					marketData, err := s.getMarketData(coin)
 					if err != nil {
-						s.LogErrorAndNotifyDev(fmt.Sprintf("[TokenInit][GetMarketDataErr][%s] err: %s", coin.Name, err.Error()))
+						s.LogDebugErrorAndNotifyDev(fmt.Sprintf("[TokenInit][GetMarketDataErr][%s] err: %s", coin.Name, err.Error()))
 						initHasError = true
 					}
 					s.tradeCoins[i].SpotValueUSD = balance.Total * marketData.SpotBidPrice
@@ -188,7 +193,7 @@ func (s *Service) Run() {
 			continue
 		}
 		s.spotAccount.TotalValueUSD = s.getSpotAccountValueUsdWithUSDC()
-		go pushData(s.spotAccount, s.perpAccount, s.tradeCoins)
+		go pushData(s.accountAddress, s.spotAccount, s.perpAccount, s.tradeCoins)
 
 		logrus.Warnf("[Perp] account value: %.2f, 可用USDC: %f, 杠杆倍数: %.3fx", perpAccountValue, s.perpAccount.AvailableUSDC, s.perpAccount.CrossAccountLeverage)
 		logrus.Warnf("[Spot] total value USD: %.2f, available USDC: %.2f", s.getSpotAccountValueUsdWithUSDC(), s.spotAccount.AvailableUSDC)
@@ -220,7 +225,7 @@ func (s *Service) Run() {
 			marketData, err := s.getMarketData(liquidationCoin)
 			orderParam, err := s.GetOrderParam(OrderSellSpotBuyPerp, liquidationCoin, marketData)
 			if err != nil {
-				s.LogErrorAndNotifyDev(fmt.Sprintf("[GetOrderParamFailed][%s]: %v", liquidationCoin.Name, err))
+				s.LogDebugErrorAndNotifyDev(fmt.Sprintf("[GetOrderParamFailed][%s]: %v", liquidationCoin.Name, err))
 				continue
 			}
 			//平空合约，卖现货
@@ -273,7 +278,6 @@ func (s *Service) Run() {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
 					continue
 				}
-				orderParam.SpotPrice = marketData.SpotBidPrice
 				if math.Abs(orderParam.Size) != 0 {
 					s.ExecOrder(action, c, orderParam)
 					//执行完后直接进入下一轮，重新检查参数
@@ -364,7 +368,7 @@ func (ps *orderSetting) SetDenyOpenOrder() {
 func (s *Service) getOrderSettingsByCoinLeverage(coinLeverage float64) orderSetting {
 	var coinOrderSetting orderSetting
 	if coinLeverage < 1 {
-		coinOrderSetting.reBalanceRatio = -0.15 //todo: 正式的时候修改回来, 原值-0.2
+		coinOrderSetting.reBalanceRatio = -0.1 //todo: 正式的时候修改回来, 原值-0.2
 		coinOrderSetting.SetAllowOpenOrder()
 	} else if coinLeverage > 1 && coinLeverage <= 1.5 {
 		coinOrderSetting.reBalanceRatio = 0
@@ -394,6 +398,12 @@ func (s *Service) LogErrorAndNotifyDev(msg string) {
 	logrus.Errorf(msg)
 	topic := "[HyperLiquid Funding Fee Alert]"
 	go s.notify.SendMsg(topic, msg)
+}
+
+func (s *Service) LogDebugErrorAndNotifyDev(msg string) {
+	logrus.Errorf(msg)
+	topic := "[HyperLiquid Funding Fee Alert]"
+	go s.debugNotify.SendMsg(topic, msg)
 }
 
 func (s *Service) GetSpotEntryValue() float64 {
@@ -561,8 +571,9 @@ func (s *Service) GetOrderParam(direction OrderAction, c *Coin, marketData Marke
 	orderSz = TruncateFloat(orderSz, orderDecimal.BigInt().Int64())
 
 	return &OrderParam{
-		Coin: c.Name,
-		Size: orderSz,
+		Coin:      c.Name,
+		Size:      orderSz,
+		SpotPrice: marketData.SpotBidPrice,
 	}, nil
 }
 
@@ -606,7 +617,7 @@ func (s *Service) ReBalanceCoinPosition(c *Coin, marketData MarketData) {
 		}
 	}
 
-	s.ExecOrder(action, c, &OrderParam{Coin: c.Name, Size: tokenSize})
+	s.ExecOrder(action, c, &OrderParam{Coin: c.Name, Size: tokenSize, SpotPrice: marketData.SpotBidPrice})
 }
 
 func (s *Service) AccountTransferUSDC(amount float64, toPerp bool) (string, error) {

@@ -8,3 +8,7 @@ Dockerfile
 docker_push.sh
 go.sum
 script/
+main
+main_new
+upload_cs.sh
+upload_self_test.sh

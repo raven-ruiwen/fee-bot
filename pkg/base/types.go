@@ -1,9 +1,10 @@
 package base
 
 type BotConfig struct {
-	PushGateway string      `mapstructure:"push_gateway"`
-	Hyper       HyperConfig `mapstructure:"hyper"`
-	Notifies    Notifies    `mapstructure:"notifies"`
+	PushGateway   string      `mapstructure:"push_gateway"`
+	Hyper         HyperConfig `mapstructure:"hyper"`
+	Notifies      Notifies    `mapstructure:"notifies"`
+	DebugNotifies Notifies    `mapstructure:"debug_notifies"`
 }
 
 type HyperConfig struct {

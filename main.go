@@ -22,6 +22,11 @@ func main() {
 		notifyClient.AddNotify(nc.Platform, nc.Token, nc.Channel)
 	}
 
+	debugNotifyClient := notify.NewService()
+	for _, nc := range config.DebugNotifies {
+		debugNotifyClient.AddNotify(nc.Platform, nc.Token, nc.Channel)
+	}
+
 	accountAddress := base.PkToAddress(config.Hyper.AccountPk)
 	agentAddress := base.PkToAddress(config.Hyper.AgentPk)
 
@@ -60,7 +65,7 @@ func main() {
 	fee_bot.SetInitValue(config.Hyper.InitValue)
 	fee_bot.SetStartTime(config.Hyper.StartAt)
 
-	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 3, notifyClient)
+	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 3, notifyClient, debugNotifyClient)
 	service.Init()
 	service.Run()
 }

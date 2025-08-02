@@ -82,3 +82,23 @@ type MarketData struct {
 	OpenSpreadPercentage  float64
 	CloseSpreadPercentage float64
 }
+
+type FundingRate struct {
+	Coin        string `json:"coin"`
+	FundingRate string `json:"fundingRate"`
+	Premium     string `json:"premium"`
+	Time        int64  `json:"time"`
+}
+
+type Funding struct {
+	Time  int64  `json:"time"`
+	Hash  string `json:"hash"`
+	Delta struct {
+		Type        string      `json:"type"`
+		Coin        string      `json:"coin"`
+		Usdc        string      `json:"usdc"`
+		Szi         string      `json:"szi"`
+		FundingRate string      `json:"fundingRate"`
+		NSamples    interface{} `json:"nSamples"`
+	} `json:"delta"`
+}
