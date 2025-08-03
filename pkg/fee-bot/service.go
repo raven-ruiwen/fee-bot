@@ -703,22 +703,28 @@ func (s *Service) needReBalanceLeverage() (bool, bool, float64) {
 		//额外多判断一个杠杆率
 		return false, toPerp, 0
 	}
-	if s.perpAccount.CrossAccountLeverage > 2 {
+	if s.perpAccount.CrossAccountLeverage > 2.1 {
 		toPerp = true
 		targetLeverage := 1.5
 		needMoreUSDC := (s.perpAccount.TotalNtlPos - targetLeverage*s.perpAccount.AccountValue) / targetLeverage
-		needMoreUSDC = math.Max(needMoreUSDC, 100)
-		//判断现货账户是否有这么多的余额
-		if s.spotAccount.AvailableUSDC < needMoreUSDC {
+		if needMoreUSDC < 100 {
+			//小于100不划转
+			return false, toPerp, 0
+		}
+		needMoreUSDC = math.Min(needMoreUSDC, s.spotAccount.AvailableUSDC)
+		if needMoreUSDC < 1 {
 			//资金不够不转移，等待差价回归 or 强制平仓
 			return false, toPerp, 0
 		}
 		return true, toPerp, needMoreUSDC
 	}
-	if s.perpAccount.CrossAccountLeverage < 1 {
+	if s.perpAccount.CrossAccountLeverage < 1 && (s.perpAccount.AccountValue > (s.getSpotAccountValueUsdWithUSDC()+s.perpAccount.AccountValue)*0.35) {
 		toPerp = false
-		needMoreUSDC := ((s.getSpotAccountValueUsdWithUSDC() + s.perpAccount.AccountValue) * 0.6) - s.getSpotAccountValueUsdWithoutUSDC()
-		needMoreUSDC = math.Max(needMoreUSDC, 100)
+		needMoreUSDC := ((s.getSpotAccountValueUsdWithUSDC() + s.perpAccount.AccountValue) * 0.66) - s.getSpotAccountValueUsdWithUSDC()
+		if needMoreUSDC < 100 {
+			//小于100不划转
+			return false, toPerp, 0
+		}
 		//判断perp账户余额
 		if s.perpAccount.AvailableUSDC < needMoreUSDC {
 			return false, toPerp, 0
