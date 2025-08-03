@@ -612,7 +612,7 @@ func (s *Service) ReBalanceCoinPosition(c *Coin, marketData MarketData) {
 			action = OrderMarketSpot
 		} else {
 			//空单多，平掉空单
-			tokenSize = spotBalance - perpPositionSizeHold
+			tokenSize = perpPositionSizeHold - spotBalance
 			action = OrderMarketPerp
 		}
 	}
