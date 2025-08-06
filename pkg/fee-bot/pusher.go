@@ -116,7 +116,7 @@ func pushData(accountAddress string, spotAccount spotAccount, perpAccount perpAc
 	}
 
 	for _, coin := range tradeCoins {
-		exporterCoinValue.WithLabelValues(coin.Name).Set(coin.SpotValueUSD + coin.PositionUSD)
+		exporterCoinValue.WithLabelValues(coin.Name).Set(coin.SpotValueUSD)
 		exporterCoinLeverage.WithLabelValues(coin.Name).Set(coin.GetLeverage(perpAccount.AccountValue))
 		exporterSpreadOpen.WithLabelValues(coin.Name).Set(coin.MarketData.OpenSpreadPercentage)
 		exporterSpreadClose.WithLabelValues(coin.Name).Set(coin.MarketData.CloseSpreadPercentage)

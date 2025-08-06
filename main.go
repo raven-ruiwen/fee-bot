@@ -4,6 +4,7 @@ import (
 	"fee-bot/pkg/base"
 	fee_bot "fee-bot/pkg/fee-bot"
 	"fee-bot/pkg/notify"
+	"fee-bot/pkg/redis"
 	"github.com/Logarithm-Labs/go-hyperliquid/hyperliquid"
 	"github.com/sirupsen/logrus"
 )
@@ -59,13 +60,15 @@ func main() {
 		PrivateKey:     config.Hyper.AgentPk, // Private key of the account or API private key from Hyperliquid
 	})
 
+	_redisClient := redis.NewRedis(&config.Redis)
+
 	fee_bot.SetBasicOpenOrderPriceDiffRatio(config.Hyper.BasicOpenOrderPriceDiffRatio)
 	fee_bot.SetBasicCloseOrderPriceDiffRatio(config.Hyper.BasicCloseOrderPriceDiffRatio)
 	fee_bot.SetPushGateway(config.PushGateway)
 	fee_bot.SetInitValue(config.Hyper.InitValue)
 	fee_bot.SetStartTime(config.Hyper.StartAt)
 
-	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 3, notifyClient, debugNotifyClient)
+	service := fee_bot.NewService(accountAddress, agentHyper, accountHyper, coins, 3, notifyClient, debugNotifyClient, _redisClient)
 	service.Init()
 	service.Run()
 }

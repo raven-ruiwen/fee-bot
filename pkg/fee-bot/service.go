@@ -1,11 +1,13 @@
 package fee_bot
 
 import (
+	"context"
 	"encoding/json"
 	"fee-bot/pkg/notify"
 	"fmt"
 	"github.com/Logarithm-Labs/go-hyperliquid/hyperliquid"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
+	redisV8 "github.com/go-redis/redis/v8"
 	"github.com/imroc/req/v3"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
@@ -38,6 +40,7 @@ type Service struct {
 	notify         *notify.Service
 	userFee        FeeData
 	debugNotify    *notify.Service
+	_redis         *redisV8.Client
 }
 
 type spotAccount struct {
@@ -63,7 +66,7 @@ type OrderParam struct {
 	SpotPrice float64
 }
 
-func NewService(accountAddress string, agentHyper *hyperliquid.Hyperliquid, accountHyper *hyperliquid.Hyperliquid, coins []*Coin, runInterval time.Duration, notify *notify.Service, debugNotify *notify.Service) *Service {
+func NewService(accountAddress string, agentHyper *hyperliquid.Hyperliquid, accountHyper *hyperliquid.Hyperliquid, coins []*Coin, runInterval time.Duration, notify *notify.Service, debugNotify *notify.Service, _redis *redisV8.Client) *Service {
 	s := &Service{}
 
 	s.accountAddress = accountAddress
@@ -79,6 +82,7 @@ func NewService(accountAddress string, agentHyper *hyperliquid.Hyperliquid, acco
 	s.runInterval = runInterval
 	s.notify = notify
 	s.debugNotify = debugNotify
+	s._redis = _redis
 
 	return s
 }
@@ -273,6 +277,9 @@ func (s *Service) Run() {
 			}
 
 			if action != OrderNoAction {
+				if !s.IsSymbolConfirm(c.Name) {
+					continue
+				}
 				orderParam, err := s.GetOrderParam(action, c, marketData)
 				if err != nil {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
@@ -288,6 +295,16 @@ func (s *Service) Run() {
 
 		time.Sleep(s.runInterval * time.Second)
 	}
+}
+
+func (s *Service) IsSymbolConfirm(symbol string) bool {
+	key := fmt.Sprintf("%s-Confirm", symbol)
+	result, err := s._redis.SetNX(context.Background(), key, 1, time.Second*5).Result()
+	if err != nil {
+		fmt.Printf("c.redis.SetNX err: %s", err.Error())
+		return false
+	}
+	return result == false
 }
 
 func (s *Service) getSpotAccountValueUsdWithoutUSDC() float64 {

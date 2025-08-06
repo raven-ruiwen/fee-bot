@@ -6,6 +6,7 @@ require (
 	github.com/Logarithm-Labs/go-hyperliquid/hyperliquid v0.0.0-20250301134158-93ef7a5af632
 	github.com/deng00/go-base v0.0.15
 	github.com/ethereum/go-ethereum v1.16.1
+	github.com/go-redis/redis/v8 v8.11.4
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/imroc/req v0.3.2
 	github.com/imroc/req/v3 v3.54.0
@@ -25,6 +26,7 @@ require (
 	github.com/crate-crypto/go-eth-kzg v1.3.0 // indirect
 	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fatih/color v1.16.0 // indirect

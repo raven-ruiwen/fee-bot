@@ -5,6 +5,7 @@ type BotConfig struct {
 	Hyper         HyperConfig `mapstructure:"hyper"`
 	Notifies      Notifies    `mapstructure:"notifies"`
 	DebugNotifies Notifies    `mapstructure:"debug_notifies"`
+	Redis         RedisConfig `mapstructure:"redis"`
 }
 
 type HyperConfig struct {
@@ -33,4 +34,12 @@ type Token struct {
 	MarketPerpId     string  `mapstructure:"market_perp_id"`
 	PositionMaxRatio float64 `mapstructure:"position_max_ratio"`
 	Leverage         int     `mapstructure:"leverage"`
+}
+
+type RedisConfig struct {
+	Addr          string `mapstructure:"addr"`
+	Pass          string `mapstructure:"pass"`
+	DB            int    `mapstructure:"db"`
+	PoolSize      int    `mapstructure:"pool_size"`
+	TlsSkipVerify bool   `mapstructure:"tls_skip_verify"`
 }
