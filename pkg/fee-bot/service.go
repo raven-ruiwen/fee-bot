@@ -238,6 +238,7 @@ func (s *Service) Run() {
 			continue
 		}
 
+		var noWait bool = false
 		//检查交易币种
 		for _, c := range s.tradeCoins {
 			logrus.Infof("🟢%s", c.Name)
@@ -255,6 +256,7 @@ func (s *Service) Run() {
 				s.LogErrorAndNotifyDev(fmt.Sprintf("[%s][头寸核对异常] spot:perp - %f : %f, ratio: %.2f%%", c.Name, c.SpotBalance, -c.PositionSize, (c.SpotBalance-(-c.PositionSize))/(-c.PositionSize)*100))
 				s.ReBalanceCoinPosition(c, marketData)
 				//执行完后跳过其他token直接进行下一轮检查
+				noWait = true
 				break
 			}
 
@@ -277,9 +279,15 @@ func (s *Service) Run() {
 			}
 
 			if action != OrderNoAction {
-				if !s.IsSymbolConfirm(c.Name) {
-					continue
+				if action == OrderSellSpotBuyPerp && (marketData.CloseSpreadPercentage <= -0.2 && marketData.CloseSpreadPercentage > -0.5) {
+					//关仓double check
+					if !s.IsSymbolDoubleConfirm(c.Name) {
+						//没到2次，直接break掉强行进入下一轮检查
+						noWait = true
+						break
+					}
 				}
+
 				orderParam, err := s.GetOrderParam(action, c, marketData)
 				if err != nil {
 					logrus.Errorf("[GetOrderParamFailed][%s]: %v", c.Name, err)
@@ -288,20 +296,26 @@ func (s *Service) Run() {
 				if math.Abs(orderParam.Size) != 0 {
 					s.ExecOrder(action, c, orderParam)
 					//执行完后直接进入下一轮，重新检查参数
+					noWait = true
 					break
 				}
 			}
+		}
+
+		if noWait {
+			continue
 		}
 
 		time.Sleep(s.runInterval * time.Second)
 	}
 }
 
-func (s *Service) IsSymbolConfirm(symbol string) bool {
+func (s *Service) IsSymbolDoubleConfirm(symbol string) bool {
 	key := fmt.Sprintf("%s-Confirm", symbol)
 	result, err := s._redis.SetNX(context.Background(), key, 1, time.Second*5).Result()
 	if err != nil {
 		fmt.Printf("c.redis.SetNX err: %s", err.Error())
+		s.debugNotify.SendMsg("[Hyper Funding Err]", fmt.Sprintf("IsSymbolDoubleConfirm: c.redis.SetNX err: %s", err.Error()))
 		return false
 	}
 	return result == false
